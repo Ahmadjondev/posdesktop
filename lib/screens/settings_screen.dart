@@ -62,9 +62,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _selectedCupsPrinter = config.cupsPrinterName.isNotEmpty
         ? config.cupsPrinterName
         : null;
-    _selectedUsbPort = config.devicePath.isNotEmpty
-        ? config.devicePath
-        : null;
+    _selectedUsbPort = config.devicePath.isNotEmpty ? config.devicePath : null;
 
     // Auto-load CUPS printers if in USB+CUPS mode
     if (_connectionType == ConnectionType.usb && _usbMode == UsbMode.cups) {
@@ -113,8 +111,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       setState(() {
         _availableUsbPorts = ports;
-        if (_selectedUsbPort != null &&
-            !ports.contains(_selectedUsbPort)) {
+        if (_selectedUsbPort != null && !ports.contains(_selectedUsbPort)) {
           _selectedUsbPort = ports.isNotEmpty ? ports.first : null;
         }
         if (_selectedUsbPort != null) {
