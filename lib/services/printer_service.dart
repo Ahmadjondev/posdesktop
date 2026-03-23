@@ -10,6 +10,31 @@ class PrinterService {
   static final _log = Logger('PrinterService');
   static const _connectTimeout = Duration(seconds: 5);
 
+  /// Discover USB print ports registered with the Windows USB Monitor
+  /// (e.g. USB001, USB002). Returns an empty list on non-Windows.
+  Future<List<String>> listWindowsUsbPorts() async {
+    if (!Platform.isWindows) return [];
+    try {
+      final result = await Process.run('powershell', [
+        '-Command',
+        r"Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Print\Monitors\USB Monitor\Ports\*' -ErrorAction SilentlyContinue | ForEach-Object { $_.PSChildName }",
+      ]);
+      if (result.exitCode != 0) {
+        _log.warning('USB Monitor registry query failed: ${result.stderr}');
+        return [];
+      }
+      return (result.stdout as String)
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .toList()
+        ..sort();
+    } catch (e) {
+      _log.warning('Failed to list Windows USB ports: $e');
+      return [];
+    }
+  }
+
   /// Discover printers registered in CUPS (macOS/Linux) or Windows spooler.
   Future<List<String>> listCupsPrinters() async {
     try {
@@ -378,7 +403,7 @@ class PrinterService {
         if (Platform.isWindows) {
           // Windows: use Win32 Spooler API (OpenPrinter/WritePrinter) for raw ESC/POS.
           // \\localhost\PrinterName requires the printer to be shared — use API instead.
-          return _sendViaWindowsSpooler(printerName, tempFile);
+          return await _sendViaWindowsSpooler(printerName, tempFile);
         }
         // macOS / Linux
         final result = await Process.run('lpr', [
@@ -408,12 +433,17 @@ class PrinterService {
 
         if (Platform.isWindows) {
           // Windows: use copy /b to write to port (e.g., COM3, USB001)
+          // Normalize: strip leading \\.\  prefix if present
+          var portName = config.devicePath;
+          if (portName.startsWith(r'\\.\')) {
+            portName = portName.substring(4);
+          }
           final result = await Process.run('cmd', [
             '/c',
             'copy',
             '/b',
             tempFile.path,
-            config.devicePath,
+            portName,
           ]);
           if (result.exitCode != 0) {
             final err = (result.stderr as String).trim();

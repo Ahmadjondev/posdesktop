@@ -37,6 +37,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<String> _availablePrinters = [];
   bool _isLoadingPrinters = false;
 
+  String? _selectedUsbPort;
+  List<String> _availableUsbPorts = [];
+  bool _isLoadingUsbPorts = false;
+
   bool _isTesting = false;
   bool _isSaving = false;
   bool _urlChanged = false;
@@ -58,10 +62,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _selectedCupsPrinter = config.cupsPrinterName.isNotEmpty
         ? config.cupsPrinterName
         : null;
+    _selectedUsbPort = config.devicePath.isNotEmpty
+        ? config.devicePath
+        : null;
 
     // Auto-load CUPS printers if in USB+CUPS mode
     if (_connectionType == ConnectionType.usb && _usbMode == UsbMode.cups) {
       _loadPrinters();
+    }
+    // Auto-load USB ports if in USB+file mode on Windows
+    if (_connectionType == ConnectionType.usb &&
+        _usbMode == UsbMode.file &&
+        Platform.isWindows) {
+      _loadUsbPorts();
     }
   }
 
@@ -90,6 +103,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       });
     } finally {
       if (mounted) setState(() => _isLoadingPrinters = false);
+    }
+  }
+
+  Future<void> _loadUsbPorts() async {
+    setState(() => _isLoadingUsbPorts = true);
+    try {
+      final ports = await _printer.listWindowsUsbPorts();
+      if (!mounted) return;
+      setState(() {
+        _availableUsbPorts = ports;
+        if (_selectedUsbPort != null &&
+            !ports.contains(_selectedUsbPort)) {
+          _selectedUsbPort = ports.isNotEmpty ? ports.first : null;
+        }
+        if (_selectedUsbPort != null) {
+          _devicePathCtrl.text = _selectedUsbPort!;
+        }
+      });
+    } finally {
+      if (mounted) setState(() => _isLoadingUsbPorts = false);
     }
   }
 
@@ -422,6 +455,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     if (v.first == UsbMode.cups && _availablePrinters.isEmpty) {
                       _loadPrinters();
                     }
+                    if (v.first == UsbMode.file &&
+                        Platform.isWindows &&
+                        _availableUsbPorts.isEmpty) {
+                      _loadUsbPorts();
+                    }
                   },
                 ),
                 const SizedBox(height: 12),
@@ -487,16 +525,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                 ],
 
-                if (_usbMode == UsbMode.file)
+                if (_usbMode == UsbMode.file && Platform.isWindows) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _selectedUsbPort,
+                          decoration: const InputDecoration(
+                            labelText: 'USB port tanlang',
+                            prefixIcon: Icon(Icons.usb),
+                            border: OutlineInputBorder(),
+                          ),
+                          items: _availableUsbPorts
+                              .map(
+                                (name) => DropdownMenuItem(
+                                  value: name,
+                                  child: Text(name),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) {
+                            setState(() => _selectedUsbPort = v);
+                            if (v != null) _devicePathCtrl.text = v;
+                          },
+                          validator: (v) {
+                            if (_connectionType != ConnectionType.usb ||
+                                _usbMode != UsbMode.file) {
+                              return null;
+                            }
+                            if (v == null || v.isEmpty) {
+                              return 'USB portni tanlang';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filled(
+                        onPressed: _isLoadingUsbPorts ? null : _loadUsbPorts,
+                        icon: _isLoadingUsbPorts
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.refresh),
+                        tooltip: 'USB portlarni yangilash',
+                      ),
+                    ],
+                  ),
+                  if (_availableUsbPorts.isEmpty && !_isLoadingUsbPorts)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'USB port topilmadi. Printerni ulang va "Yangilash" tugmasini bosing.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.error,
+                        ),
+                      ),
+                    ),
+                ],
+
+                if (_usbMode == UsbMode.file && !Platform.isWindows)
                   TextFormField(
                     controller: _devicePathCtrl,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       labelText: 'Qurilma yo\'li',
-                      hintText: Platform.isWindows
-                          ? r'\\.\USB001 yoki COM3'
-                          : '/dev/usb/lp0',
-                      prefixIcon: const Icon(Icons.folder_open),
-                      border: const OutlineInputBorder(),
+                      hintText: '/dev/usb/lp0',
+                      prefixIcon: Icon(Icons.folder_open),
+                      border: OutlineInputBorder(),
                     ),
                     validator: (v) {
                       if (_connectionType != ConnectionType.usb ||
