@@ -259,8 +259,18 @@ class _HomeScreenState extends State<HomeScreen> {
       final receipt = ReceiptData.fromJson(data);
       final config = widget.settings.printerConfig;
 
+      if (!config.isConfigured) {
+        _log.warning('Printer not configured — aborting print');
+        _postMessage({
+          'type': 'PRINT_RESULT',
+          'success': false,
+          'error': 'Printer sozlanmagan. Sozlamalarda printerni tanlang.',
+        });
+        return;
+      }
+
       _log.info(
-        'Printing receipt ${receipt.saleNumber} to ${config.ip}:${config.port}',
+        'Printing receipt ${receipt.saleNumber} via ${config.connectionLabel}',
       );
 
       final result = await _printer.printReceipt(receipt, config);
@@ -379,6 +389,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       onPressed: _isReady ? _reload : null,
                     ),
                     const Spacer(),
+                    // ── Printer status chip ──
+                    _PrinterStatusChip(settings: widget.settings),
+                    const SizedBox(width: 4),
                     _NavButton(
                       icon: Icons.settings_rounded,
                       tooltip: 'Sozlamalar (Ctrl+,)',
@@ -530,6 +543,56 @@ class _NavButton extends StatelessWidget {
         foregroundColor: onPressed != null
             ? Theme.of(context).colorScheme.onSurface
             : Theme.of(context).colorScheme.onSurface.withAlpha(80),
+      ),
+    );
+  }
+}
+
+/// Compact chip in the toolbar showing the active printer target.
+class _PrinterStatusChip extends StatelessWidget {
+  final SettingsService settings;
+
+  const _PrinterStatusChip({required this.settings});
+
+  @override
+  Widget build(BuildContext context) {
+    final config = settings.printerConfig;
+    final configured = config.isConfigured;
+    final theme = Theme.of(context);
+
+    return Tooltip(
+      message: configured
+          ? '${config.name} \u2014 ${config.connectionLabel}'
+          : 'Printer sozlanmagan',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: configured
+              ? theme.colorScheme.primaryContainer.withAlpha(120)
+              : theme.colorScheme.errorContainer.withAlpha(120),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              configured ? Icons.print_rounded : Icons.print_disabled_rounded,
+              size: 14,
+              color: configured
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.error,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              configured ? config.name : 'Printer yo\u02BBq',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: configured
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.error,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

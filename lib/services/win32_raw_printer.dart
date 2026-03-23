@@ -30,42 +30,50 @@ class Win32RawPrinter {
 
   // ── DLL + function bindings (resolved once at first access) ──────────
 
-  static late final DynamicLibrary _winspool =
-      DynamicLibrary.open('winspool.drv');
+  static late final DynamicLibrary _winspool = DynamicLibrary.open(
+    'winspool.drv',
+  );
 
-  static late final int Function(
-          Pointer<Utf16>, Pointer<IntPtr>, Pointer<Void>) _openPrinter =
-      _winspool.lookupFunction<
-          Int32 Function(Pointer<Utf16>, Pointer<IntPtr>, Pointer<Void>),
-          int Function(
-              Pointer<Utf16>, Pointer<IntPtr>, Pointer<Void>)>('OpenPrinterW');
+  static late final int Function(Pointer<Utf16>, Pointer<IntPtr>, Pointer<Void>)
+  _openPrinter = _winspool
+      .lookupFunction<
+        Int32 Function(Pointer<Utf16>, Pointer<IntPtr>, Pointer<Void>),
+        int Function(Pointer<Utf16>, Pointer<IntPtr>, Pointer<Void>)
+      >('OpenPrinterW');
 
   static late final int Function(int) _closePrinter = _winspool
       .lookupFunction<Int32 Function(IntPtr), int Function(int)>(
-          'ClosePrinter');
+        'ClosePrinter',
+      );
 
   static late final int Function(int, int, Pointer<_DocInfo1>)
-      _startDocPrinter = _winspool.lookupFunction<
-          Int32 Function(IntPtr, Int32, Pointer<_DocInfo1>),
-          int Function(int, int, Pointer<_DocInfo1>)>('StartDocPrinterW');
+  _startDocPrinter = _winspool
+      .lookupFunction<
+        Int32 Function(IntPtr, Int32, Pointer<_DocInfo1>),
+        int Function(int, int, Pointer<_DocInfo1>)
+      >('StartDocPrinterW');
 
   static late final int Function(int) _endDocPrinter = _winspool
       .lookupFunction<Int32 Function(IntPtr), int Function(int)>(
-          'EndDocPrinter');
+        'EndDocPrinter',
+      );
 
   static late final int Function(int) _startPagePrinter = _winspool
       .lookupFunction<Int32 Function(IntPtr), int Function(int)>(
-          'StartPagePrinter');
+        'StartPagePrinter',
+      );
 
   static late final int Function(int) _endPagePrinter = _winspool
       .lookupFunction<Int32 Function(IntPtr), int Function(int)>(
-          'EndPagePrinter');
+        'EndPagePrinter',
+      );
 
   static late final int Function(int, Pointer<Void>, int, Pointer<Int32>)
-      _writePrinter = _winspool.lookupFunction<
-          Int32 Function(IntPtr, Pointer<Void>, Int32, Pointer<Int32>),
-          int Function(
-              int, Pointer<Void>, int, Pointer<Int32>)>('WritePrinter');
+  _writePrinter = _winspool
+      .lookupFunction<
+        Int32 Function(IntPtr, Pointer<Void>, Int32, Pointer<Int32>),
+        int Function(int, Pointer<Void>, int, Pointer<Int32>)
+      >('WritePrinter');
 
   // ── Public API ───────────────────────────────────────────────────────
 
@@ -131,8 +139,7 @@ class Win32RawPrinter {
                 // Copy Dart bytes into native memory
                 pBuf.asTypedList(data.length).setAll(0, data);
 
-                if (_writePrinter(
-                        handle, pBuf.cast(), data.length, pWritten) ==
+                if (_writePrinter(handle, pBuf.cast(), data.length, pWritten) ==
                     0) {
                   return (success: false, error: 'WritePrinter failed');
                 }
@@ -140,7 +147,8 @@ class Win32RawPrinter {
                 final written = pWritten.value;
                 if (written != data.length) {
                   _log.warning(
-                      'WritePrinter: wrote $written of ${data.length} bytes');
+                    'WritePrinter: wrote $written of ${data.length} bytes',
+                  );
                 }
               } finally {
                 calloc.free(pWritten);

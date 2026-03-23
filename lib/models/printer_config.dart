@@ -11,17 +11,40 @@ class PrinterConfig {
 
   const PrinterConfig({
     this.name = 'Receipt Printer',
-    this.ip = '192.168.0.150',
+    this.ip = '',
     this.port = 9100,
     this.paperWidth = PaperWidth.mm80,
     this.codepage = 17, // CP866 for Cyrillic
-    this.connectionType = ConnectionType.network,
+    this.connectionType = ConnectionType.usb,
     this.usbMode = UsbMode.cups,
     this.cupsPrinterName = '',
     this.devicePath = '',
   });
 
   int get charsPerLine => paperWidth == PaperWidth.mm57 ? 32 : 48;
+
+  /// Whether the printer has been explicitly configured by the user.
+  bool get isConfigured {
+    if (connectionType == ConnectionType.network) {
+      return ip.isNotEmpty;
+    }
+    // USB mode
+    if (usbMode == UsbMode.cups) {
+      return cupsPrinterName.isNotEmpty;
+    }
+    return devicePath.isNotEmpty;
+  }
+
+  /// Human-readable label for the active connection target.
+  String get connectionLabel {
+    if (connectionType == ConnectionType.network) {
+      return 'LAN $ip:$port';
+    }
+    if (usbMode == UsbMode.cups) {
+      return 'USB "$cupsPrinterName"';
+    }
+    return 'USB $devicePath';
+  }
 
   Map<String, dynamic> toJson() => {
     'name': name,
@@ -37,7 +60,7 @@ class PrinterConfig {
 
   factory PrinterConfig.fromJson(Map<String, dynamic> json) => PrinterConfig(
     name: json['name'] as String? ?? 'Receipt Printer',
-    ip: json['ip'] as String? ?? '192.168.0.150',
+    ip: json['ip'] as String? ?? '',
     port: json['port'] as int? ?? 9100,
     paperWidth: PaperWidth.values.firstWhere(
       (e) => e.name == json['paperWidth'],
@@ -46,7 +69,7 @@ class PrinterConfig {
     codepage: json['codepage'] as int? ?? 17,
     connectionType: ConnectionType.values.firstWhere(
       (e) => e.name == json['connectionType'],
-      orElse: () => ConnectionType.network,
+      orElse: () => ConnectionType.usb,
     ),
     usbMode: UsbMode.values.firstWhere(
       (e) => e.name == json['usbMode'],

@@ -106,6 +106,31 @@ class PrinterService {
 
   Future<bool> _testUsb(PrinterConfig config) async {
     try {
+      if (Platform.isWindows) {
+        // On Windows, verify the printer queue exists in the spooler.
+        // This works for both CUPS-name and port-based config.
+        String? queueName;
+        if (config.usbMode == UsbMode.cups &&
+            config.cupsPrinterName.isNotEmpty) {
+          queueName = config.cupsPrinterName;
+        } else if (config.devicePath.isNotEmpty) {
+          queueName =
+              await Win32RawPrinter.printerNameForPort(config.devicePath);
+        }
+        if (queueName == null || queueName.isEmpty) {
+          _log.info('USB test: no printer queue resolved');
+          return false;
+        }
+        // Verify the queue name exists in the spooler
+        final printers = await listCupsPrinters();
+        final found = printers.contains(queueName);
+        _log.info(
+          'USB test: "$queueName" ${found ? "found" : "not found"} in spooler',
+        );
+        return found;
+      }
+
+      // macOS / Linux
       if (config.usbMode == UsbMode.cups) {
         final printers = await listCupsPrinters();
         final found = printers.contains(config.cupsPrinterName);
@@ -113,22 +138,11 @@ class PrinterService {
           'CUPS test: "${config.cupsPrinterName}" ${found ? "found" : "not found"} in $printers',
         );
         return found;
-      } else {
-        if (Platform.isWindows) {
-          // COM/LPT ports can't be tested with File.existsSync on Windows
-          final result = await Process.run('cmd', [
-            '/c',
-            'mode',
-            config.devicePath,
-          ]);
-          final ok = result.exitCode == 0;
-          _log.info('Device port test: "${config.devicePath}" ok=$ok');
-          return ok;
-        }
-        final exists = File(config.devicePath).existsSync();
-        _log.info('Device path test: "${config.devicePath}" exists=$exists');
-        return exists;
       }
+
+      final exists = File(config.devicePath).existsSync();
+      _log.info('Device path test: "${config.devicePath}" exists=$exists');
+      return exists;
     } catch (e) {
       _log.warning('USB test failed: $e');
       return false;
@@ -427,8 +441,7 @@ class PrinterService {
     } else if (config.devicePath.isNotEmpty) {
       // Resolve port name (e.g. "USB001") → printer queue name
       _log.info('Resolving port "${config.devicePath}" to printer name...');
-      printerName =
-          await Win32RawPrinter.printerNameForPort(config.devicePath);
+      printerName = await Win32RawPrinter.printerNameForPort(config.devicePath);
       if (printerName == null) {
         return PrintResult(
           success: false,
@@ -459,9 +472,7 @@ class PrinterService {
       );
 
       if (attempt < maxAttempts) {
-        await Future<void>.delayed(
-          Duration(milliseconds: 300 * attempt),
-        );
+        await Future<void>.delayed(Duration(milliseconds: 300 * attempt));
       } else {
         return PrintResult(
           success: false,
@@ -501,10 +512,7 @@ class PrinterService {
       if (result.exitCode != 0) {
         final err = (result.stderr as String).trim();
         _log.severe('lpr failed (exit ${result.exitCode}): $err');
-        return PrintResult(
-          success: false,
-          error: 'Chop etishda xatolik: $err',
-        );
+        return PrintResult(success: false, error: 'Chop etishda xatolik: $err');
       }
 
       _log.info('CUPS print job sent successfully');
