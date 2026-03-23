@@ -442,6 +442,115 @@ class PrinterService {
     }
   }
 
+  /// Send raw bytes to a locally-installed Windows printer via Win32 Spooler API.
+  /// Uses a PowerShell inline C# P/Invoke script so no external tools or
+  /// printer sharing are required.
+  Future<PrintResult> _sendViaWindowsSpooler(
+    String printerName,
+    File dataFile,
+  ) async {
+    File? psFile;
+    try {
+      psFile = File(
+        '${Directory.systemTemp.path}/dp_${DateTime.now().millisecondsSinceEpoch}.ps1',
+      );
+      await psFile.writeAsString(
+        _buildWindowsRawPrintScript(dataFile.path, printerName),
+      );
+      final result = await Process.run('powershell', [
+        '-ExecutionPolicy',
+        'Bypass',
+        '-NonInteractive',
+        '-File',
+        psFile.path,
+      ]);
+      if (result.exitCode != 0) {
+        final err = ((result.stderr as String?) ?? '').trim();
+        _log.severe('Windows spooler failed (${result.exitCode}): $err');
+        return PrintResult(
+          success: false,
+          error: 'Windows chop etishda xatolik: $err',
+        );
+      }
+      _log.info('Windows raw print successful');
+      return const PrintResult(success: true);
+    } catch (e) {
+      _log.severe('Windows spooler error: $e');
+      return PrintResult(success: false, error: 'Chop etishda xatolik: $e');
+    } finally {
+      try {
+        psFile?.deleteSync();
+      } catch (_) {}
+    }
+  }
+
+  /// Builds a PowerShell script that uses winspool.drv P/Invoke to deliver
+  /// raw ESC/POS bytes directly to the Windows print spooler.
+  String _buildWindowsRawPrintScript(String filePath, String printerName) {
+    // Escape single quotes for PowerShell single-quoted string literals
+    final psPath = filePath.replaceAll("'", "''");
+    final psName = printerName.replaceAll("'", "''");
+    return r"""$ErrorActionPreference = "Stop"
+$bytes = [System.IO.File]::ReadAllBytes('""" +
+        psPath +
+        r"""')
+$printerName = '""" +
+        psName +
+        r"""'
+
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+public class DocInfo {
+    [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+    [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+    [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+}
+public class RawPrint {
+    [DllImport("winspool.drv", CharSet=CharSet.Auto, SetLastError=true)]
+    public static extern bool OpenPrinter(string n, out IntPtr h, IntPtr d);
+    [DllImport("winspool.drv", SetLastError=true)]
+    public static extern bool ClosePrinter(IntPtr h);
+    [DllImport("winspool.drv", SetLastError=true)]
+    public static extern int StartDocPrinter(IntPtr h, int l, [In, MarshalAs(UnmanagedType.LPStruct)] DocInfo di);
+    [DllImport("winspool.drv", SetLastError=true)]
+    public static extern bool EndDocPrinter(IntPtr h);
+    [DllImport("winspool.drv", SetLastError=true)]
+    public static extern bool StartPagePrinter(IntPtr h);
+    [DllImport("winspool.drv", SetLastError=true)]
+    public static extern bool EndPagePrinter(IntPtr h);
+    [DllImport("winspool.drv", SetLastError=true)]
+    public static extern bool WritePrinter(IntPtr h, IntPtr p, int n, out int w);
+}
+"@
+
+$h = [IntPtr]::Zero
+if (-not [RawPrint]::OpenPrinter($printerName, [ref]$h, [IntPtr]::Zero)) {
+    throw "Cannot open printer: $printerName"
+}
+try {
+    $di = New-Object DocInfo
+    $di.pDocName = "Digitex Receipt"
+    $di.pDataType = "RAW"
+    if ([RawPrint]::StartDocPrinter($h, 1, $di) -eq 0) { throw "StartDocPrinter failed" }
+    [RawPrint]::StartPagePrinter($h) | Out-Null
+    $ptr = [Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
+    try {
+        [Runtime.InteropServices.Marshal]::Copy($bytes, 0, $ptr, $bytes.Length)
+        $written = 0
+        if (-not [RawPrint]::WritePrinter($h, $ptr, $bytes.Length, [ref]$written)) { throw "WritePrinter failed" }
+    } finally {
+        [Runtime.InteropServices.Marshal]::FreeHGlobal($ptr)
+    }
+    [RawPrint]::EndPagePrinter($h) | Out-Null
+    [RawPrint]::EndDocPrinter($h) | Out-Null
+} finally {
+    [RawPrint]::ClosePrinter($h) | Out-Null
+}
+""";
+  }
+
   String _formatDate(String dateStr) {
     try {
       final dt = DateTime.parse(dateStr);
