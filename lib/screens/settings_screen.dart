@@ -11,8 +11,13 @@ final _log = Logger('SettingsScreen');
 /// Settings screen: configure POS URL, printer IP/port, paper width, and auto-start.
 class SettingsScreen extends StatefulWidget {
   final SettingsService settings;
+  final Future<void> Function()? onClearCache;
 
-  const SettingsScreen({super.key, required this.settings});
+  const SettingsScreen({
+    super.key,
+    required this.settings,
+    this.onClearCache,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -44,6 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isTesting = false;
   bool _isSaving = false;
   bool _urlChanged = false;
+  bool _isClearingCache = false;
 
   @override
   void initState() {
@@ -262,6 +268,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } catch (e) {
       _log.warning('Failed to update auto-start: $e');
+    }
+  }
+
+  Future<void> _clearCache() async {
+    if (widget.onClearCache == null) return;
+    setState(() => _isClearingCache = true);
+    try {
+      await widget.onClearCache!();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Kesh tozalandi! Sahifa qayta yuklanadi.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      _log.warning('Clear cache failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Keshni tozalashda xatolik: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isClearingCache = false);
     }
   }
 
@@ -706,6 +738,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   side: BorderSide(color: theme.colorScheme.outline),
                 ),
               ),
+
+              if (widget.onClearCache != null) ...[
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: Icon(
+                    Icons.delete_sweep_rounded,
+                    color: theme.colorScheme.error,
+                  ),
+                  title: const Text('Keshni tozalash'),
+                  subtitle: const Text(
+                    'Saqlangan veb-sahifa ma\'lumotlarini o\'chiradi. Keyingi yuklashda barcha fayllar qayta yuklanadi.',
+                  ),
+                  trailing: _isClearingCache
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : OutlinedButton(
+                          onPressed: _clearCache,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: theme.colorScheme.error,
+                            side: BorderSide(color: theme.colorScheme.error),
+                          ),
+                          child: const Text('Tozalash'),
+                        ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(color: theme.colorScheme.outline),
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 32),
 

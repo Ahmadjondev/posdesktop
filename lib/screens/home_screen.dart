@@ -36,10 +36,16 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isPageLoading = true;
   bool _isPrinting = false;
   String? _error;
+  bool _firstLoadComplete = false;
 
   // Navigation state
   bool _canGoBack = false;
   bool _canGoForward = false;
+
+  // Auto-retry state
+  Timer? _retryTimer;
+  int _retryCount = 0;
+  static const _maxRetries = 5;
 
   @override
   void initState() {
@@ -82,8 +88,13 @@ class _HomeScreenState extends State<HomeScreen> {
     // Track loading state
     controller.loadingState.listen((state) {
       if (mounted) {
+        final loading = state == ww.LoadingState.loading;
         setState(() {
-          _isPageLoading = state == ww.LoadingState.loading;
+          _isPageLoading = loading;
+          if (!loading && !_firstLoadComplete) {
+            _firstLoadComplete = true;
+            _retryCount = 0;
+          }
         });
       }
     });
@@ -108,7 +119,15 @@ class _HomeScreenState extends State<HomeScreen> {
             if (mounted) setState(() => _isPageLoading = true);
           },
           onPageFinished: (url) {
-            if (mounted) setState(() => _isPageLoading = false);
+            if (mounted) {
+              setState(() {
+                _isPageLoading = false;
+                if (!_firstLoadComplete) {
+                  _firstLoadComplete = true;
+                  _retryCount = 0;
+                }
+              });
+            }
             _injectBridgeShim();
             _updateMacNavState();
           },
@@ -119,6 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 _isPageLoading = false;
                 _error = err.description;
               });
+              _scheduleRetry();
             }
           },
         ),
@@ -177,6 +197,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Navigation Actions ────────────────────────────────────────────────
 
+  /// Schedule an automatic retry with exponential backoff on load failure.
+  void _scheduleRetry() {
+    _retryTimer?.cancel();
+    if (_retryCount >= _maxRetries) return;
+
+    final delay = Duration(seconds: 2 * (1 << _retryCount)); // 2, 4, 8, 16, 32s
+    _retryCount++;
+    _log.info('Auto-retry #$_retryCount in ${delay.inSeconds}s');
+
+    _retryTimer = Timer(delay, () {
+      if (mounted && _error != null) {
+        _reload();
+      }
+    });
+  }
+
   void _goBack() {
     if (!_canGoBack) return;
     if (Platform.isWindows) {
@@ -199,6 +235,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _reload() {
     if (!_isReady) return;
+    _retryTimer?.cancel();
     setState(() {
       _error = null;
       _isPageLoading = true;
@@ -316,7 +353,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openSettings() async {
     final reload = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => SettingsScreen(settings: widget.settings),
+        builder: (_) => SettingsScreen(
+          settings: widget.settings,
+          onClearCache: _clearCache,
+        ),
       ),
     );
     if (reload == true && _isReady) {
@@ -329,13 +369,71 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _clearCache() async {
+    if (Platform.isWindows && _winController != null) {
+      await _winController!.clearCache();
+      _log.info('WebView cache cleared');
+      _reload();
+    }
+  }
+
   @override
   void dispose() {
+    _retryTimer?.cancel();
     _winController?.dispose();
     super.dispose();
   }
 
   // ── Build ─────────────────────────────────────────────────────────────
+
+  Widget _buildSplashScreen(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Branded icon
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(
+              Icons.point_of_sale_rounded,
+              size: 40,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Digitex POS',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: 160,
+            child: LinearProgressIndicator(
+              minHeight: 3,
+              borderRadius: BorderRadius.circular(2),
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Yuklanmoqda...',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -445,9 +543,41 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ).colorScheme.onSurfaceVariant,
                                     ),
                               ),
+                              if (_retryCount > 0 && _retryCount < _maxRetries) ...[
+                                const SizedBox(height: 12),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Avtomatik qayta urinish... ($_retryCount/$_maxRetries)',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                               const SizedBox(height: 24),
                               FilledButton.icon(
                                 onPressed: () {
+                                  _retryCount = 0;
+                                  _retryTimer?.cancel();
                                   setState(() => _error = null);
                                   _initWebView();
                                 },
@@ -465,7 +595,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       )
                     else if (!_isReady)
-                      const Center(child: CircularProgressIndicator())
+                      _buildSplashScreen(context)
                     else if (Platform.isWindows && _winController != null)
                       ww.Webview(_winController!)
                     else if (_macController != null)

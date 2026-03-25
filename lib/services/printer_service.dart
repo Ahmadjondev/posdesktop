@@ -114,8 +114,9 @@ class PrinterService {
             config.cupsPrinterName.isNotEmpty) {
           queueName = config.cupsPrinterName;
         } else if (config.devicePath.isNotEmpty) {
-          queueName =
-              await Win32RawPrinter.printerNameForPort(config.devicePath);
+          queueName = await Win32RawPrinter.printerNameForPort(
+            config.devicePath,
+          );
         }
         if (queueName == null || queueName.isEmpty) {
           _log.info('USB test: no printer queue resolved');
