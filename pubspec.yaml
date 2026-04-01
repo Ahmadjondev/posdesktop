@@ -38,6 +38,7 @@ dependencies:
   webview_flutter: ^4.13.1
   webview_flutter_wkwebview: ^3.23.8
   path_provider: ^2.1.5
+  msix: ^3.16.13
 
 dev_dependencies:
   flutter_test:
@@ -55,6 +56,17 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+
+msix_config:
+  display_name: Digitex POS
+  publisher_display_name: InSoft LLC
+  identity_name: insoft.llc.digitexpos
+  msix_version: 1.0.0.0
+  logo_path: assets/logo.png
+  store: false
+  architecture: x64
+  capabilities: internetClient, privateNetworkClientServer
+  languages: en-us, ru-ru, uz-uz
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
