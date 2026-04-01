@@ -10,7 +10,7 @@ import 'app.dart';
 import 'services/settings_service.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  final wid = WidgetsFlutterBinding.ensureInitialized();
 
   // Logging
   Logger.root.level = Level.ALL;
@@ -31,9 +31,9 @@ void main() async {
 
   // Window configuration
   await windowManager.ensureInitialized();
-
-  const windowOptions = WindowOptions(
-    minimumSize: Size(1024, 768),
+  
+  final windowOptions = WindowOptions(
+    minimumSize: wid.platformDispatcher.displays.first.size,
     center: true,
     title: 'Digitex POS',
     backgroundColor: Colors.transparent,
