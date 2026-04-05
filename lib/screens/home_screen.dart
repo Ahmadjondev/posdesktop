@@ -151,12 +151,18 @@ class _HomeScreenState extends State<HomeScreen> {
     // Handles the WebView2 touch-focus bug where Flutter's parent HWND
     // reclaims focus on touch-up, preventing input fields from activating.
     // Only targets focusable elements — buttons/links work natively.
+    //
+    // IMPORTANT: webview_windows uses SendPointerInput(PT_TOUCH) which
+    // generates DOM PointerEvents, NOT TouchEvents. So we must listen
+    // on 'pointerup' with pointerType check, not 'touchend'.
     // See: https://github.com/jnschulze/flutter-webview-windows/issues/183
     await controller.addScriptToExecuteOnDocumentCreated('''
       (function() {
         var FOCUSABLE = 'INPUT,TEXTAREA,SELECT,[contenteditable="true"]';
 
-        document.addEventListener('touchend', function(e) {
+        document.addEventListener('pointerup', function(e) {
+          if (e.pointerType !== 'touch') return;
+
           var el = e.target;
           var focusEl = el.closest ? el.closest(FOCUSABLE) : null;
           if (!focusEl) return;
