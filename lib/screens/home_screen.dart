@@ -10,6 +10,7 @@ import 'package:webview_windows/webview_windows.dart' as ww;
 import '../models/receipt_data.dart';
 import '../services/printer_service.dart';
 import '../services/settings_service.dart';
+import '../utils/webview_touch_fix.dart';
 import 'settings_screen.dart';
 
 /// Main screen: full-window WebView loading the POS web app.
@@ -110,6 +111,25 @@ class _HomeScreenState extends State<HomeScreen> {
         _scheduleRetry();
       }
     });
+
+    // Inject JS shim that force-focuses input elements on touch.
+    // This complements the Dart-side WebviewTouchFix wrapper by ensuring
+    // DOM-level focus is explicitly set even if the composition layer
+    // briefly loses focus during the touch-up → WM_ACTIVATE race.
+    // See: https://github.com/jnschulze/flutter-webview-windows/issues/183
+    await controller.addScriptToExecuteOnDocumentCreated('''
+      (function() {
+        var FOCUSABLE = 'INPUT,TEXTAREA,SELECT,[contenteditable="true"]';
+        document.addEventListener('pointerup', function(e) {
+          if (e.pointerType !== 'touch') return;
+          var el = e.target.closest ? e.target.closest(FOCUSABLE) : null;
+          if (!el) return;
+          setTimeout(function() {
+            try { el.focus(); } catch(_) {}
+          }, 120);
+        }, true);
+      })();
+    ''');
 
     final url = widget.settings.posUrl;
     _log.info('Loading POS URL: $url');
@@ -610,7 +630,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     else if (!_isReady)
                       _buildSplashScreen(context)
                     else if (Platform.isWindows && _winController != null)
-                      ww.Webview(_winController!)
+                      WebviewTouchFix(child: ww.Webview(_winController!))
                     else if (_macController != null)
                       wf.WebViewWidget(controller: _macController!),
 
