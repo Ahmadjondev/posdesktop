@@ -555,7 +555,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ).colorScheme.onSurfaceVariant,
                                     ),
                               ),
-                              if (_retryCount > 0 && _retryCount < _maxRetries) ...[
+                              if (_retryCount > 0 &&
+                                  _retryCount < _maxRetries) ...[
                                 const SizedBox(height: 12),
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -565,9 +566,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                       height: 14,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
                                       ),
                                     ),
                                     const SizedBox(width: 8),
@@ -577,9 +578,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                           .textTheme
                                           .bodySmall
                                           ?.copyWith(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .onSurfaceVariant,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
                                           ),
                                     ),
                                   ],
