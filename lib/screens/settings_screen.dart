@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import '../models/printer_config.dart';
 import '../services/printer_service.dart';
 import '../services/settings_service.dart';
+import '../services/web_log_service.dart';
 
 final _log = Logger('SettingsScreen');
 
@@ -294,6 +295,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
     } finally {
       if (mounted) setState(() => _isClearingCache = false);
+    }
+  }
+
+  Future<void> _openLogFolder() async {
+    try {
+      final dirPath = await WebLogService.instance.logDirectoryPath;
+      final dir = Directory(dirPath);
+      if (!await dir.exists()) await dir.create(recursive: true);
+      if (Platform.isWindows) {
+        await Process.run('explorer', [dirPath]);
+      } else if (Platform.isMacOS) {
+        await Process.run('open', [dirPath]);
+      }
+    } catch (e) {
+      _log.warning('Failed to open log folder: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Log papkasini ochishda xatolik: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -770,6 +793,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ],
+
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Icon(
+                  Icons.description_outlined,
+                  color: theme.colorScheme.primary,
+                ),
+                title: const Text('Veb loglar'),
+                subtitle: Text(
+                  WebLogService.instance.logFilePath ?? 'Log fayli hali yaratilmagan',
+                  style: theme.textTheme.bodySmall,
+                ),
+                trailing: OutlinedButton(
+                  onPressed: _openLogFolder,
+                  child: const Text('Papkani ochish'),
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: theme.colorScheme.outline),
+                ),
+              ),
 
               const SizedBox(height: 32),
 

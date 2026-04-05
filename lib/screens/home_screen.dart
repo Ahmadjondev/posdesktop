@@ -10,6 +10,7 @@ import 'package:webview_windows/webview_windows.dart' as ww;
 import '../models/receipt_data.dart';
 import '../services/printer_service.dart';
 import '../services/settings_service.dart';
+import '../services/web_log_service.dart';
 import '../utils/webview_touch_fix.dart';
 import 'settings_screen.dart';
 
@@ -33,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   wf.WebViewController? _macController;
 
   final _printer = PrinterService();
+  final _webLog = WebLogService.instance;
   bool _isReady = false;
   bool _isPageLoading = true;
   bool _isPrinting = false;
@@ -51,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _webLog.init();
     _initWebView();
   }
 
@@ -112,21 +115,90 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
 
-    // Inject JS shim that force-focuses input elements on touch.
-    // This complements the Dart-side WebviewTouchFix wrapper by ensuring
-    // DOM-level focus is explicitly set even if the composition layer
-    // briefly loses focus during the touch-up → WM_ACTIVATE race.
+    // ── JS: Web error logging bridge ─────────────────────────────────
+    // Captures console.error, console.warn, and unhandled exceptions from
+    // the web app and forwards them to Dart via postMessage for logging.
+    await controller.addScriptToExecuteOnDocumentCreated('''
+      (function() {
+        function send(level, args) {
+          try {
+            var msg = Array.prototype.slice.call(args).map(function(a) {
+              if (a instanceof Error) return a.message + '\\n' + (a.stack || '');
+              if (typeof a === 'object') try { return JSON.stringify(a); } catch(_) {}
+              return String(a);
+            }).join(' ');
+            window.chrome.webview.postMessage(JSON.stringify({
+              type: 'WEB_LOG', level: level, message: msg,
+              url: window.location.href,
+              timestamp: new Date().toISOString()
+            }));
+          } catch(_) {}
+        }
+        var origError = console.error;
+        var origWarn = console.warn;
+        console.error = function() { send('error', arguments); return origError.apply(console, arguments); };
+        console.warn = function() { send('warn', arguments); return origWarn.apply(console, arguments); };
+        window.addEventListener('error', function(e) {
+          send('error', ['Uncaught: ' + e.message + ' at ' + e.filename + ':' + e.lineno + ':' + e.colno]);
+        });
+        window.addEventListener('unhandledrejection', function(e) {
+          send('error', ['Unhandled rejection: ' + (e.reason && e.reason.message || e.reason || 'unknown')]);
+        });
+      })();
+    ''');
+
+    // ── JS: Touch focus fix + click debounce ─────────────────────────
+    // Handles the WebView2 touch-focus bug where Flutter's parent HWND
+    // reclaims focus on touch-up. Also debounces rapid touch events to
+    // prevent double-click/multi-tap artifacts.
     // See: https://github.com/jnschulze/flutter-webview-windows/issues/183
     await controller.addScriptToExecuteOnDocumentCreated('''
       (function() {
         var FOCUSABLE = 'INPUT,TEXTAREA,SELECT,[contenteditable="true"]';
+        var CLICKABLE = 'A,BUTTON,[role="button"],[tabindex]';
+        var lastTouchTarget = null;
+        var lastTouchTime = 0;
+        var DEBOUNCE_MS = 300;
+
         document.addEventListener('pointerup', function(e) {
           if (e.pointerType !== 'touch') return;
-          var el = e.target.closest ? e.target.closest(FOCUSABLE) : null;
-          if (!el) return;
-          setTimeout(function() {
-            try { el.focus(); } catch(_) {}
-          }, 120);
+          var now = Date.now();
+          var el = e.target;
+
+          // Debounce: skip if same target tapped within DEBOUNCE_MS
+          if (el === lastTouchTarget && (now - lastTouchTime) < DEBOUNCE_MS) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+          }
+          lastTouchTarget = el;
+          lastTouchTime = now;
+
+          // Force-focus input elements after a delay to survive the
+          // Flutter HWND focus-steal race condition
+          var focusEl = el.closest ? el.closest(FOCUSABLE) : null;
+          if (focusEl) {
+            setTimeout(function() {
+              try { focusEl.focus(); } catch(_) {}
+            }, 120);
+            return;
+          }
+
+          // For clickable elements, ensure the click actually fires
+          var clickEl = el.closest ? el.closest(CLICKABLE) : null;
+          if (clickEl) {
+            setTimeout(function() {
+              try { clickEl.click(); } catch(_) {}
+            }, 50);
+          }
+        }, true);
+
+        // Prevent ghost double-clicks from touch events
+        document.addEventListener('click', function(e) {
+          if (e.detail > 1 && e.pointerType === 'touch') {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
         }, true);
       })();
     ''');
@@ -301,6 +373,8 @@ class _HomeScreenState extends State<HomeScreen> {
         await _handlePrint(parsed['data'] as Map<String, dynamic>);
       } else if (type == 'PING') {
         _postMessage({'type': 'PONG', 'desktop': true});
+      } else if (type == 'WEB_LOG') {
+        _handleWebLog(parsed);
       }
     } catch (e) {
       _log.severe('Error processing web message: $e');
@@ -367,6 +441,30 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Logs web app errors/warnings forwarded via the WEB_LOG JS bridge.
+  void _handleWebLog(Map<String, dynamic> data) {
+    final level = data['level'] as String? ?? 'info';
+    final message = data['message'] as String? ?? '';
+    final url = data['url'] as String? ?? '';
+    final timestamp = data['timestamp'] as String? ?? '';
+    final logLine = '[$timestamp] ($url) $message';
+
+    // Log to console
+    switch (level) {
+      case 'error':
+        _log.severe('WEB: $logLine');
+        break;
+      case 'warn':
+        _log.warning('WEB: $logLine');
+        break;
+      default:
+        _log.info('WEB: $logLine');
+    }
+
+    // Persist to file
+    _webLog.write(level, message, url: url, timestamp: timestamp);
+  }
+
   void _postMessage(Map<String, dynamic> msg) {
     try {
       final encoded = json.encode(msg);
@@ -412,6 +510,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _retryTimer?.cancel();
+    _webLog.flush();
     _winController?.dispose();
     super.dispose();
   }
