@@ -147,14 +147,13 @@ class _HomeScreenState extends State<HomeScreen> {
       })();
     ''');
 
-    // ── JS: Touch focus fix ────────────────────────────────────────────
-    // Handles the WebView2 touch-focus bug where Flutter's parent HWND
-    // reclaims focus on touch-up, preventing input fields from activating.
-    // Only targets focusable elements — buttons/links work natively.
+    // ── JS: Touch focus fix (supplemental) ───────────────────────────
+    // The primary fix is native MoveFocus() called from WebviewTouchFix
+    // on every touch-up. This JS shim is a supplemental measure that
+    // also sets DOM-level focus on input elements after touch.
     //
-    // IMPORTANT: webview_windows uses SendPointerInput(PT_TOUCH) which
-    // generates DOM PointerEvents, NOT TouchEvents. So we must listen
-    // on 'pointerup' with pointerType check, not 'touchend'.
+    // webview_windows uses SendPointerInput(PT_TOUCH) which generates
+    // DOM PointerEvents, NOT TouchEvents — so we listen on 'pointerup'.
     // See: https://github.com/jnschulze/flutter-webview-windows/issues/183
     await controller.addScriptToExecuteOnDocumentCreated('''
       (function() {
@@ -167,22 +166,17 @@ class _HomeScreenState extends State<HomeScreen> {
           var focusEl = el.closest ? el.closest(FOCUSABLE) : null;
           if (!focusEl) return;
 
-          // Force-focus input elements after a delay to survive the
-          // Flutter HWND focus-steal race condition.
-          // Multiple attempts at staggered timings because the HWND
-          // focus steal can happen at unpredictable moments.
-          var attempts = [50, 150, 300];
-          attempts.forEach(function(delay) {
-            setTimeout(function() {
-              try {
-                focusEl.focus();
-                if (focusEl.setSelectionRange && focusEl.value !== undefined) {
-                  var len = focusEl.value.length;
-                  focusEl.setSelectionRange(len, len);
-                }
-              } catch(_) {}
-            }, delay);
-          });
+          // Supplemental DOM focus after native MoveFocus transfers
+          // Win32 focus to the WebView2 controller.
+          setTimeout(function() {
+            try {
+              focusEl.focus();
+              if (focusEl.setSelectionRange && focusEl.value !== undefined) {
+                var len = focusEl.value.length;
+                focusEl.setSelectionRange(len, len);
+              }
+            } catch(_) {}
+          }, 100);
         }, true);
       })();
     ''');
@@ -713,7 +707,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     else if (!_isReady)
                       _buildSplashScreen(context)
                     else if (Platform.isWindows && _winController != null)
-                      WebviewTouchFix(child: ww.Webview(_winController!))
+                      WebviewTouchFix(
+                        controller: _winController!,
+                        child: ww.Webview(_winController!),
+                      )
                     else if (_macController != null)
                       wf.WebViewWidget(controller: _macController!),
 
