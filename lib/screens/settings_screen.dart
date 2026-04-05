@@ -14,11 +14,7 @@ class SettingsScreen extends StatefulWidget {
   final SettingsService settings;
   final Future<void> Function()? onClearCache;
 
-  const SettingsScreen({
-    super.key,
-    required this.settings,
-    this.onClearCache,
-  });
+  const SettingsScreen({super.key, required this.settings, this.onClearCache});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -802,7 +798,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 title: const Text('Veb loglar'),
                 subtitle: Text(
-                  WebLogService.instance.logFilePath ?? 'Log fayli hali yaratilmagan',
+                  WebLogService.instance.logFilePath ??
+                      'Log fayli hali yaratilmagan',
                   style: theme.textTheme.bodySmall,
                 ),
                 trailing: OutlinedButton(
