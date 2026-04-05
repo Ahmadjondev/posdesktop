@@ -10,7 +10,7 @@ import 'app.dart';
 import 'services/settings_service.dart';
 
 void main() async {
-  final wid = WidgetsFlutterBinding.ensureInitialized();
+  WidgetsFlutterBinding.ensureInitialized();
 
   // Logging
   Logger.root.level = Level.ALL;
@@ -24,8 +24,27 @@ void main() async {
   if (Platform.isWindows) {
     final appSupport = await getApplicationSupportDirectory();
     final userDataPath = '${appSupport.path}/webview2_cache';
+
+    // Optimize for low-end hardware (e.g. Intel Core i3-2100, 2-core, Intel HD 2000).
+    // These flags reduce process count, disable GPU (avoids crashes on old iGPUs
+    // that lack DX11/ANGLE support), and activate Chromium's low-end device mode.
+    const lowEndFlags = [
+      '--disable-gpu',
+      '--disable-gpu-compositing',
+      '--enable-low-end-device-mode',
+      '--renderer-process-limit=1',
+      '--process-per-site',
+      '--disable-features=Vulkan,D3D12,VaapiVideoDecoder,Translate',
+      '--disable-background-networking',
+      '--disable-client-side-phishing-detection',
+      '--disable-sync',
+      '--disable-default-apps',
+      '--js-flags=--max-old-space-size=256',
+    ];
+
     await ww.WebviewController.initializeEnvironment(
       userDataPath: userDataPath,
+      additionalArguments: lowEndFlags.join(' '),
     );
   }
 
@@ -33,7 +52,7 @@ void main() async {
   await windowManager.ensureInitialized();
   
   final windowOptions = WindowOptions(
-    minimumSize: wid.platformDispatcher.displays.first.size,
+    minimumSize: const Size(1024, 600),
     center: true,
     title: 'Digitex POS',
     backgroundColor: Colors.transparent,

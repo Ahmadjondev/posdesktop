@@ -99,6 +99,18 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
 
+    // Handle load errors (renderer/GPU crashes on old hardware surface here)
+    controller.onLoadError.listen((error) {
+      _log.warning('WebView load error: $error');
+      if (mounted) {
+        setState(() {
+          _isPageLoading = false;
+          _error = 'Sahifani yuklashda xatolik: $error';
+        });
+        _scheduleRetry();
+      }
+    });
+
     final url = widget.settings.posUrl;
     _log.info('Loading POS URL: $url');
     await controller.loadUrl(url);

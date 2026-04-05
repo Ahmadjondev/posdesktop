@@ -65,6 +65,7 @@ msix_config:
   logo_path: assets/logo.png
   store: false
   architecture: x64
+  os_min_version: 10.0.18362.0
   capabilities: internetClient, privateNetworkClientServer
   languages: en-us, ru-ru, uz-uz
   # To add assets to your application, add an assets section, like this:
