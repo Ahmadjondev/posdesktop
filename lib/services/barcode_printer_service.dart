@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import '../models/printer_config.dart';
 import '../utils/tspl_commands.dart';
+import '../utils/text_bitmap_renderer.dart';
 import 'printer_service.dart';
 import 'win32_raw_printer.dart';
 
@@ -46,6 +47,30 @@ class BarcodePrinterService {
         final code = (p['code'] as String?) ?? '';
         final price = (p['price'] as String?) ?? '';
 
+        // Pre-render Cyrillic-capable text as bitmaps
+        final truncName = name.length > 28
+            ? '${name.substring(0, 26)}..'
+            : name;
+        BitmapData? nameBitmap;
+        BitmapData? priceBitmap;
+        try {
+          if (_hasNonAscii(truncName)) {
+            nameBitmap = await TextBitmapRenderer.render(
+              truncName,
+              fontSize: 20,
+            );
+          }
+          if (_hasNonAscii(price)) {
+            priceBitmap = await TextBitmapRenderer.render(
+              price,
+              fontSize: 20,
+              bold: true,
+            );
+          }
+        } catch (e) {
+          _log.warning('Bitmap text render failed, using TEXT fallback: $e');
+        }
+
         final labelBytes = TsplBuilder.buildLabel(
           labelWidth: config.labelWidth,
           labelHeight: config.labelHeight,
@@ -54,6 +79,8 @@ class BarcodePrinterService {
           productName: name,
           productCode: code,
           price: price,
+          nameBitmap: nameBitmap,
+          priceBitmap: priceBitmap,
         );
         allBytes.addAll(labelBytes);
       }
@@ -76,9 +103,15 @@ class BarcodePrinterService {
   /// Print a test label to verify the barcode printer works.
   Future<PrintResult> printTestLabel(BarcodePrinterConfig config) async {
     return printLabels([
-      {'name': 'Test Product', 'code': 'TEST-001', 'price': '10 000 UZS'},
+      {
+        'name': 'АБВГДЕЁЖЗИЙКЛМН',
+        'code': 'TEST-001',
+        'price': 'ОПРСТУФХЦЧШЩЪЫЬЭЮЯ',
+      },
     ], config);
   }
+
+  static bool _hasNonAscii(String s) => s.runes.any((r) => r > 0x7E);
 
   /// Test connection (delegates to PrinterService transport checks).
   Future<bool> testConnection(BarcodePrinterConfig config) async {
