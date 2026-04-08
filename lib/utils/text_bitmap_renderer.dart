@@ -5,15 +5,7 @@ import 'package:flutter/painting.dart';
 
 import 'tspl_commands.dart';
 
-/// Renders text to monochrome 1-bit bitmaps for TSPL BITMAP command.
-///
-/// Uses Flutter's [TextPainter] to render with system fonts (full Unicode
-/// support including Cyrillic), then converts to 1-bit-per-pixel bitmap
-/// suitable for the TSPL BITMAP command.
 class TextBitmapRenderer {
-  /// Render [text] to a monochrome bitmap.
-  ///
-  /// The bitmap uses 1 bit per pixel, MSB = leftmost pixel, 1 = black.
   static Future<BitmapData> render(
     String text, {
     double fontSize = 20,
@@ -21,7 +13,7 @@ class TextBitmapRenderer {
   }) async {
     final style = ui.TextStyle(
       fontSize: fontSize,
-      color: const ui.Color(0xFF000000),
+      color: const ui.Color(0xFF000000), // ✅ BLACK TEXT
       fontWeight: bold ? ui.FontWeight.w700 : ui.FontWeight.w400,
     );
 
@@ -32,6 +24,7 @@ class TextBitmapRenderer {
           ..pushStyle(style)
           ..addText(text);
 
+    // ✅ Width constraint (MUHIM)
     final paragraph = builder.build()
       ..layout(const ui.ParagraphConstraints(width: double.infinity));
 
@@ -47,20 +40,23 @@ class TextBitmapRenderer {
       );
     }
 
-    // Render text onto a white canvas
+    // ✅ WHITE BACKGROUND
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(
       recorder,
       ui.Rect.fromLTWH(0, 0, pxW.toDouble(), pxH.toDouble()),
     );
+
     canvas.drawRect(
       ui.Rect.fromLTWH(0, 0, pxW.toDouble(), pxH.toDouble()),
       ui.Paint()..color = const ui.Color(0xFFFFFFFF),
     );
+
     canvas.drawParagraph(paragraph, ui.Offset.zero);
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(pxW, pxH);
+
     final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
     image.dispose();
 
@@ -68,7 +64,7 @@ class TextBitmapRenderer {
       throw Exception('Failed to render text to image');
     }
 
-    // Convert RGBA → 1-bit monochrome (MSB-first, 1 = black, 0 = white)
+    // ✅ Convert RGBA → 1-bit bitmap
     final wBytes = (pxW + 7) ~/ 8;
     final bits = Uint8List(wBytes * pxH);
 
@@ -78,10 +74,22 @@ class TextBitmapRenderer {
         final r = byteData.getUint8(off);
         final g = byteData.getUint8(off + 1);
         final b = byteData.getUint8(off + 2);
-        // Luminance < 128 → black pixel
+
+        // 🔥 BLACK detection
         if ((r * 299 + g * 587 + b * 114) < 128000) {
           bits[y * wBytes + x ~/ 8] |= (0x80 >> (x & 7));
         }
+      }
+    }
+
+    // 🔥🔥 FIX: remove trailing garbage bits (NO MORE | LINE)
+    final validBits = pxW % 8;
+    if (validBits != 0) {
+      final mask = 0xFF << (8 - validBits);
+
+      for (var y = 0; y < pxH; y++) {
+        final lastByteIndex = y * wBytes + (wBytes - 1);
+        bits[lastByteIndex] &= mask;
       }
     }
 

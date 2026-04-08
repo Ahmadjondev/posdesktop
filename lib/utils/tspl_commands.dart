@@ -233,7 +233,7 @@ class TsplBuilder {
       );
     } else {
       final name = productName.length > 28
-          ? '${productName.substring(0, 26)}..'
+          ? '${productName.substring(0, 28)}..'
           : productName;
       final nameWidth = name.length * 12;
       final nameX = ((widthDots - nameWidth) / 2).clamp(4, widthDots).toInt();

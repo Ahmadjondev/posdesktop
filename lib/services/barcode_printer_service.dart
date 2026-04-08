@@ -49,7 +49,7 @@ class BarcodePrinterService {
 
         // Pre-render Cyrillic-capable text as bitmaps
         final truncName = name.length > 28
-            ? '${name.substring(0, 26)}..'
+            ? '${name.substring(0, 28)}..'
             : name;
         BitmapData? nameBitmap;
         BitmapData? priceBitmap;
