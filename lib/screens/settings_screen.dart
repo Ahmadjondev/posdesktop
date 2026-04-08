@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 
 import '../models/printer_config.dart';
+import '../services/barcode_printer_service.dart';
 import '../services/printer_service.dart';
 import '../services/settings_service.dart';
 import '../services/web_log_service.dart';
@@ -23,12 +24,18 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   final _printer = PrinterService();
+  final _barcodePrinter = BarcodePrinterService();
 
   late final TextEditingController _urlCtrl;
   late final TextEditingController _ipCtrl;
   late final TextEditingController _portCtrl;
   late final TextEditingController _nameCtrl;
   late final TextEditingController _devicePathCtrl;
+
+  // Barcode printer controllers
+  late final TextEditingController _barcodeIpCtrl;
+  late final TextEditingController _barcodePortCtrl;
+  late final TextEditingController _barcodeDevicePathCtrl;
 
   late PaperWidth _paperWidth;
   late int _codepage;
@@ -43,6 +50,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<String> _availableUsbPorts = [];
   bool _isLoadingUsbPorts = false;
 
+  // Barcode printer state
+  late ConnectionType _barcodeConnectionType;
+  late UsbMode _barcodeUsbMode;
+  String? _barcodeSelectedCupsPrinter;
+  List<String> _barcodeAvailablePrinters = [];
+  bool _barcodeIsLoadingPrinters = false;
+  String? _barcodeSelectedUsbPort;
+  List<String> _barcodeAvailableUsbPorts = [];
+  bool _barcodeIsLoadingUsbPorts = false;
+  bool _barcodeIsTesting = false;
+
   bool _isTesting = false;
   bool _isSaving = false;
   bool _urlChanged = false;
@@ -52,11 +70,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     final config = widget.settings.printerConfig;
+    final barcodeConfig = widget.settings.barcodePrinterConfig;
+
     _urlCtrl = TextEditingController(text: widget.settings.posUrl);
     _ipCtrl = TextEditingController(text: config.ip);
     _portCtrl = TextEditingController(text: config.port.toString());
     _nameCtrl = TextEditingController(text: config.name);
     _devicePathCtrl = TextEditingController(text: config.devicePath);
+
+    _barcodeIpCtrl = TextEditingController(text: barcodeConfig.ip);
+    _barcodePortCtrl = TextEditingController(
+      text: barcodeConfig.port.toString(),
+    );
+    _barcodeDevicePathCtrl = TextEditingController(
+      text: barcodeConfig.devicePath,
+    );
     _paperWidth = config.paperWidth;
     _codepage = config.codepage;
     _autoStart = widget.settings.autoStart;
@@ -66,6 +94,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ? config.cupsPrinterName
         : null;
     _selectedUsbPort = config.devicePath.isNotEmpty ? config.devicePath : null;
+
+    // Barcode printer init
+    _barcodeConnectionType = barcodeConfig.connectionType;
+    _barcodeUsbMode = barcodeConfig.usbMode;
+    _barcodeSelectedCupsPrinter = barcodeConfig.cupsPrinterName.isNotEmpty
+        ? barcodeConfig.cupsPrinterName
+        : null;
+    _barcodeSelectedUsbPort = barcodeConfig.devicePath.isNotEmpty
+        ? barcodeConfig.devicePath
+        : null;
 
     // Auto-load CUPS printers if in USB+CUPS mode
     if (_connectionType == ConnectionType.usb && _usbMode == UsbMode.cups) {
@@ -77,6 +115,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Platform.isWindows) {
       _loadUsbPorts();
     }
+
+    // Auto-load barcode printer lists
+    if (_barcodeConnectionType == ConnectionType.usb &&
+        _barcodeUsbMode == UsbMode.cups) {
+      _loadBarcodePrinters();
+    }
+    if (_barcodeConnectionType == ConnectionType.usb &&
+        _barcodeUsbMode == UsbMode.file &&
+        Platform.isWindows) {
+      _loadBarcodeUsbPorts();
+    }
   }
 
   @override
@@ -86,6 +135,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _portCtrl.dispose();
     _nameCtrl.dispose();
     _devicePathCtrl.dispose();
+    _barcodeIpCtrl.dispose();
+    _barcodePortCtrl.dispose();
+    _barcodeDevicePathCtrl.dispose();
     super.dispose();
   }
 
@@ -123,6 +175,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
       });
     } finally {
       if (mounted) setState(() => _isLoadingUsbPorts = false);
+    }
+  }
+
+  // ── Barcode printer helpers ────────────────────────────────────────
+
+  Future<void> _loadBarcodePrinters() async {
+    setState(() => _barcodeIsLoadingPrinters = true);
+    try {
+      final printers = await _printer.listCupsPrinters();
+      if (!mounted) return;
+      setState(() {
+        _barcodeAvailablePrinters = printers;
+        if (_barcodeSelectedCupsPrinter != null &&
+            !printers.contains(_barcodeSelectedCupsPrinter)) {
+          _barcodeSelectedCupsPrinter = printers.isNotEmpty
+              ? printers.first
+              : null;
+        }
+      });
+    } finally {
+      if (mounted) setState(() => _barcodeIsLoadingPrinters = false);
+    }
+  }
+
+  Future<void> _loadBarcodeUsbPorts() async {
+    setState(() => _barcodeIsLoadingUsbPorts = true);
+    try {
+      final ports = await _printer.listWindowsUsbPorts();
+      if (!mounted) return;
+      setState(() {
+        _barcodeAvailableUsbPorts = ports;
+        if (_barcodeSelectedUsbPort != null &&
+            !ports.contains(_barcodeSelectedUsbPort)) {
+          _barcodeSelectedUsbPort = ports.isNotEmpty ? ports.first : null;
+        }
+        if (_barcodeSelectedUsbPort != null) {
+          _barcodeDevicePathCtrl.text = _barcodeSelectedUsbPort!;
+        }
+      });
+    } finally {
+      if (mounted) setState(() => _barcodeIsLoadingUsbPorts = false);
+    }
+  }
+
+  BarcodePrinterConfig _buildBarcodeConfig() => BarcodePrinterConfig(
+    ip: _barcodeIpCtrl.text.trim(),
+    port: int.tryParse(_barcodePortCtrl.text.trim()) ?? 9100,
+    connectionType: _barcodeConnectionType,
+    usbMode: _barcodeUsbMode,
+    cupsPrinterName: _barcodeSelectedCupsPrinter ?? '',
+    devicePath: _barcodeDevicePathCtrl.text.trim(),
+  );
+
+  Future<void> _testBarcodeConnection() async {
+    setState(() => _barcodeIsTesting = true);
+    try {
+      final config = _buildBarcodeConfig();
+      final ok = await _barcodePrinter.testConnection(config);
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok
+                ? 'Shtrix-kod printeriga muvaffaqiyatli ulandi!'
+                : 'Shtrix-kod printeriga ulanib bo\'lmadi.',
+          ),
+          backgroundColor: ok ? Colors.green : Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _barcodeIsTesting = false);
+    }
+  }
+
+  Future<void> _printBarcodeTestLabel() async {
+    setState(() => _barcodeIsTesting = true);
+    try {
+      final config = _buildBarcodeConfig();
+      final result = await _barcodePrinter.printTestLabel(config);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.success
+                ? 'Test yorliq chop etildi!'
+                : 'Xatolik: ${result.error}',
+          ),
+          backgroundColor: result.success ? Colors.green : Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _barcodeIsTesting = false);
     }
   }
 
@@ -207,6 +352,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       await widget.settings.setPosUrl(newUrl);
       await widget.settings.setPrinterConfig(_buildConfig());
+      await widget.settings.setBarcodePrinterConfig(_buildBarcodeConfig());
       await widget.settings.setAutoStart(_autoStart);
 
       // Handle auto-start on Windows
@@ -730,6 +876,249 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onPressed: _isTesting ? null : _printTestPage,
                     icon: const Icon(Icons.receipt_long),
                     label: const Text('Test sahifa chop etish'),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 32),
+
+              // ── Barcode Printer ───────────────────────────────────
+              Text(
+                'Shtrix-kod Printer (Yorliq)',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Xprinter XP-365B yoki boshqa TSPL printer uchun',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // ── Barcode connection type toggle ────────────────────
+              SegmentedButton<ConnectionType>(
+                segments: const [
+                  ButtonSegment(
+                    value: ConnectionType.network,
+                    label: Text('Tarmoq (LAN)'),
+                    icon: Icon(Icons.router),
+                  ),
+                  ButtonSegment(
+                    value: ConnectionType.usb,
+                    label: Text('USB'),
+                    icon: Icon(Icons.usb),
+                  ),
+                ],
+                selected: {_barcodeConnectionType},
+                onSelectionChanged: (v) {
+                  setState(() => _barcodeConnectionType = v.first);
+                  if (v.first == ConnectionType.usb &&
+                      _barcodeUsbMode == UsbMode.cups &&
+                      _barcodeAvailablePrinters.isEmpty) {
+                    _loadBarcodePrinters();
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+
+              // ── Barcode network fields ────────────────────────────
+              if (_barcodeConnectionType == ConnectionType.network) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: TextFormField(
+                        controller: _barcodeIpCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'IP manzil',
+                          hintText: '192.168.0.151',
+                          prefixIcon: Icon(Icons.router),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 1,
+                      child: TextFormField(
+                        controller: _barcodePortCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Port',
+                          hintText: '9100',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+
+              // ── Barcode USB fields ────────────────────────────────
+              if (_barcodeConnectionType == ConnectionType.usb) ...[
+                SegmentedButton<UsbMode>(
+                  segments: [
+                    ButtonSegment(
+                      value: UsbMode.cups,
+                      label: Text(
+                        Platform.isWindows
+                            ? 'Windows Printer'
+                            : 'Tizim printeri (CUPS)',
+                      ),
+                      icon: const Icon(Icons.print),
+                    ),
+                    ButtonSegment(
+                      value: UsbMode.file,
+                      label: Text(
+                        Platform.isWindows
+                            ? 'Port (COM/USB)'
+                            : 'Qurilma (to\'g\'ridan)',
+                      ),
+                      icon: const Icon(Icons.settings_ethernet),
+                    ),
+                  ],
+                  selected: {_barcodeUsbMode},
+                  onSelectionChanged: (v) {
+                    setState(() => _barcodeUsbMode = v.first);
+                    if (v.first == UsbMode.cups &&
+                        _barcodeAvailablePrinters.isEmpty) {
+                      _loadBarcodePrinters();
+                    }
+                    if (v.first == UsbMode.file &&
+                        Platform.isWindows &&
+                        _barcodeAvailableUsbPorts.isEmpty) {
+                      _loadBarcodeUsbPorts();
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                if (_barcodeUsbMode == UsbMode.cups) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _barcodeSelectedCupsPrinter,
+                          decoration: const InputDecoration(
+                            labelText: 'Printer tanlang',
+                            prefixIcon: Icon(Icons.print),
+                            border: OutlineInputBorder(),
+                          ),
+                          items: _barcodeAvailablePrinters
+                              .map(
+                                (name) => DropdownMenuItem(
+                                  value: name,
+                                  child: Text(name),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) =>
+                              setState(() => _barcodeSelectedCupsPrinter = v),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filled(
+                        onPressed: _barcodeIsLoadingPrinters
+                            ? null
+                            : _loadBarcodePrinters,
+                        icon: _barcodeIsLoadingPrinters
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.refresh),
+                        tooltip: 'Printerlarni yangilash',
+                      ),
+                    ],
+                  ),
+                ],
+
+                if (_barcodeUsbMode == UsbMode.file && Platform.isWindows) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _barcodeSelectedUsbPort,
+                          decoration: const InputDecoration(
+                            labelText: 'USB port tanlang',
+                            prefixIcon: Icon(Icons.usb),
+                            border: OutlineInputBorder(),
+                          ),
+                          items: _barcodeAvailableUsbPorts
+                              .map(
+                                (name) => DropdownMenuItem(
+                                  value: name,
+                                  child: Text(name),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) {
+                            setState(() => _barcodeSelectedUsbPort = v);
+                            if (v != null) _barcodeDevicePathCtrl.text = v;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filled(
+                        onPressed: _barcodeIsLoadingUsbPorts
+                            ? null
+                            : _loadBarcodeUsbPorts,
+                        icon: _barcodeIsLoadingUsbPorts
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.refresh),
+                        tooltip: 'USB portlarni yangilash',
+                      ),
+                    ],
+                  ),
+                ],
+
+                if (_barcodeUsbMode == UsbMode.file && !Platform.isWindows)
+                  TextFormField(
+                    controller: _barcodeDevicePathCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Qurilma yo\'li',
+                      hintText: '/dev/usb/lp0',
+                      prefixIcon: Icon(Icons.folder_open),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+              ],
+              const SizedBox(height: 16),
+
+              Row(
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: _barcodeIsTesting
+                        ? null
+                        : _testBarcodeConnection,
+                    icon: _barcodeIsTesting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.cable),
+                    label: const Text('Ulanishni tekshirish'),
+                  ),
+                  const SizedBox(width: 12),
+                  OutlinedButton.icon(
+                    onPressed: _barcodeIsTesting
+                        ? null
+                        : _printBarcodeTestLabel,
+                    icon: const Icon(Icons.qr_code),
+                    label: const Text('Test yorliq chop etish'),
                   ),
                 ],
               ),

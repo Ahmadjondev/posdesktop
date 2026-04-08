@@ -8,6 +8,7 @@ import 'package:webview_flutter/webview_flutter.dart' as wf;
 import 'package:webview_windows/webview_windows.dart' as ww;
 
 import '../models/receipt_data.dart';
+import '../services/barcode_printer_service.dart';
 import '../services/printer_service.dart';
 import '../services/settings_service.dart';
 import '../services/web_log_service.dart';
@@ -34,10 +35,12 @@ class _HomeScreenState extends State<HomeScreen> {
   wf.WebViewController? _macController;
 
   final _printer = PrinterService();
+  final _barcodePrinter = BarcodePrinterService();
   final _webLog = WebLogService.instance;
   bool _isReady = false;
   bool _isPageLoading = true;
   bool _isPrinting = false;
+  bool _isPrintingBarcode = false;
   String? _error;
   bool _firstLoadComplete = false;
 
@@ -349,6 +352,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (type == 'PRINT') {
         await _handlePrint(parsed['data'] as Map<String, dynamic>);
+      } else if (type == 'PRINT_BARCODE') {
+        await _handlePrintBarcode(parsed['data'] as List<dynamic>);
       } else if (type == 'PING') {
         _postMessage({'type': 'PONG', 'desktop': true});
       } else if (type == 'WEB_LOG') {
@@ -416,6 +421,65 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     } finally {
       if (mounted) setState(() => _isPrinting = false);
+    }
+  }
+
+  Future<void> _handlePrintBarcode(List<dynamic> data) async {
+    if (_isPrintingBarcode) {
+      _postMessage({
+        'type': 'PRINT_BARCODE_RESULT',
+        'success': false,
+        'error': 'Yorliq chop etish jarayoni allaqachon ketmoqda',
+      });
+      return;
+    }
+
+    setState(() => _isPrintingBarcode = true);
+
+    try {
+      final products = data
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+
+      final config = widget.settings.barcodePrinterConfig;
+
+      if (!config.isConfigured) {
+        _log.warning('Barcode printer not configured');
+        _postMessage({
+          'type': 'PRINT_BARCODE_RESULT',
+          'success': false,
+          'error':
+              'Shtrix-kod printer sozlanmagan. Sozlamalarda printerni tanlang.',
+        });
+        return;
+      }
+
+      _log.info(
+        'Printing ${products.length} barcode labels via ${config.connectionLabel}',
+      );
+
+      final result = await _barcodePrinter.printLabels(products, config);
+
+      _postMessage({
+        'type': 'PRINT_BARCODE_RESULT',
+        'success': result.success,
+        if (!result.success) 'error': result.error,
+      });
+
+      if (result.success) {
+        _log.info('${products.length} barcode labels printed successfully');
+      } else {
+        _log.warning('Barcode print failed: ${result.error}');
+      }
+    } catch (e) {
+      _log.severe('Barcode print error: $e');
+      _postMessage({
+        'type': 'PRINT_BARCODE_RESULT',
+        'success': false,
+        'error': 'Yorliq chop etishda xatolik: $e',
+      });
+    } finally {
+      if (mounted) setState(() => _isPrintingBarcode = false);
     }
   }
 

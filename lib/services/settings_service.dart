@@ -6,6 +6,7 @@ import '../models/printer_config.dart';
 class SettingsService {
   static const _keyPosUrl = 'pos_url';
   static const _keyPrinterConfig = 'printer_config';
+  static const _keyBarcodePrinterConfig = 'barcode_printer_config';
   static const _keyAutoStart = 'auto_start';
   static const _keySetupComplete = 'setup_complete';
   static const _defaultUrl = 'https://demo.digitex.uz/';
@@ -34,9 +35,7 @@ class SettingsService {
     final raw = _prefs.getString(_keyPrinterConfig);
     if (raw == null) return const PrinterConfig();
     try {
-      return PrinterConfig.fromJson(
-        json.decode(raw) as Map<String, dynamic>,
-      );
+      return PrinterConfig.fromJson(json.decode(raw) as Map<String, dynamic>);
     } catch (_) {
       return const PrinterConfig();
     }
@@ -44,6 +43,27 @@ class SettingsService {
 
   Future<void> setPrinterConfig(PrinterConfig config) async {
     await _prefs.setString(_keyPrinterConfig, json.encode(config.toJson()));
+  }
+
+  // ── Barcode printer config ────────────────────────────────────────────
+
+  BarcodePrinterConfig get barcodePrinterConfig {
+    final raw = _prefs.getString(_keyBarcodePrinterConfig);
+    if (raw == null) return const BarcodePrinterConfig();
+    try {
+      return BarcodePrinterConfig.fromJson(
+        json.decode(raw) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      return const BarcodePrinterConfig();
+    }
+  }
+
+  Future<void> setBarcodePrinterConfig(BarcodePrinterConfig config) async {
+    await _prefs.setString(
+      _keyBarcodePrinterConfig,
+      json.encode(config.toJson()),
+    );
   }
 
   // ── Auto-start ────────────────────────────────────────────────────────
